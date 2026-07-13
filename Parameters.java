@@ -53,8 +53,8 @@ public class Parameters {
     // =====================================================================
 
     /**
-     * DETECTION DISTANCE, in pixels. A source is counted when the sensors come this
-     * close to it. Used through detectLevel() in Brain.feed().
+     * DETECTION DISTANCE, in pixels. How near a source has to be for a visit to count
+     * at all. Used through detectLevel() in Brain.feed().
      *
      * The brain cannot measure distance - it only sees a reading. So the distance is
      * converted into a reading level with the inverse-square law:
@@ -66,6 +66,9 @@ public class Parameters {
      *
      *     20 px -> level 1.25 : it has to bump into a source to count it
      *    120 px -> level 0.03 : it counts sources it only drives past
+     *
+     * This is a floor, not the trigger: the pulse itself happens at the peak of the
+     * reading (the closest approach), not the moment this level is crossed. See Brain.
      */
     public static double DETECT_DISTANCE = 41;
 

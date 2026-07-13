@@ -216,9 +216,11 @@ public class ControlPanel extends JPanel {
         switch (key) {
             case AnatomyView.DETECT:
                 return wrap(String.format(Locale.US,
-                        "<b>Detection distance.</b> How close a source must be before the brain "
-                        + "counts it. The brain only sees a reading, so the distance becomes a level:"
-                        + "<br>&nbsp;&nbsp;level = %.0f / %.0f&sup2; = <b>%.2f</b>",
+                        "<b>Detection distance.</b> How near a source must be to count at all. "
+                        + "The brain only sees a reading, so the distance becomes a level:"
+                        + "<br>&nbsp;&nbsp;level = %.0f / %.0f&sup2; = <b>%.2f</b>"
+                        + "<br>The pulse fires at the <i>peak</i> of the reading - the closest "
+                        + "approach - not when this level is crossed.",
                         Parameters.SENSOR_GAIN, Parameters.DETECT_DISTANCE, Parameters.detectLevel()));
             case AnatomyView.CRUISE:
                 return wrap(String.format(Locale.US,
