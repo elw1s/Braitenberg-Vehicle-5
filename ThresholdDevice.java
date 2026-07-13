@@ -1,17 +1,24 @@
 /**
- * A Braitenberg threshold device.
+ * A Braitenberg threshold device: the one building block the whole brain is made of.
  *
- * It sums its inputs and fires only if that sum reaches its threshold.
- * Once it has fired it latches: it stays active until it is switched off.
- * This single element is all Vehicle 5 is built from.
+ * It sums the wires coming into it and fires only if that sum reaches its threshold.
+ * Every device here LATCHES: once it fires it stays on, and the only thing that can switch
+ * it off again is an inhibitory wire (see Circuit). That latch is what turns a circuit of
+ * these into a MEMORY rather than a reflex - it is the whole point of Braitenberg's chapter 5.
+ *
+ * threshold is editable, because the editor lets you click a device and change it.
+ * x and y are 0..1 - a fraction of the board, not pixels - so the circuit keeps its shape
+ * when the window is resized or goes fullscreen. They say nothing about behaviour.
  */
 public class ThresholdDevice {
 
-    final int threshold;
-    boolean active;
+    public int threshold;
+    public double x, y;
 
-    public ThresholdDevice(int threshold) {
+    public ThresholdDevice(int threshold, double x, double y) {
         this.threshold = threshold;
+        this.x = x;
+        this.y = y;
     }
 
     public boolean wouldFire(int inputSum) {

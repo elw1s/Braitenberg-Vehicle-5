@@ -7,7 +7,6 @@ import java.awt.RenderingHints;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
-import java.awt.geom.RoundRectangle2D;
 import java.util.Locale;
 import javax.swing.JPanel;
 
@@ -28,7 +27,6 @@ public class AnatomyView extends JPanel {
     public static final String CRUISE = "cruise";
     public static final String STEER = "steer";
     public static final String SPACING = "spacing";
-    public static final String CHAIN = "chain";
     public static final String PAUSE = "pause";
 
     private static final double SCALE = 0.72;  // world pixels -> drawing pixels
@@ -81,7 +79,7 @@ public class AnatomyView extends JPanel {
         drawCruiseArrow(g);
         drawBody(g, bodyR, sensorY, half, sensorR);
         drawSpacingBar(g, sensorY, half, sensorR);
-        drawChain(g);
+        drawPause(g);
     }
 
     // ------------------------------------------------------------------ parts
@@ -163,29 +161,16 @@ public class AnatomyView extends JPanel {
                 6, cy + 4, Anchor.LEFT, cx - half, y);
     }
 
-    /** The threshold devices in a row: the vehicle's memory. */
-    private void drawChain(Graphics2D g) {
-        int n = Parameters.CHAIN_LENGTH;
-        double boxW = 15, boxH = 15, gap = 6;
-        double x = cx - (n * boxW + (n - 1) * gap) / 2;
-        double y = height - 34;
-
-        g.setStroke(Theme.THIN);
-        for (int i = 0; i < n; i++) {
-            RoundRectangle2D box = new RoundRectangle2D.Double(x, y, boxW, boxH, 5, 5);
-            g.setColor(on(CHAIN) ? Theme.ACCENT_BG : Theme.BG);
-            g.fill(box);
-            g.setColor(tint(CHAIN, Theme.FAINT));
-            g.draw(box);
-            if (i < n - 1) {
-                g.draw(new Line2D.Double(x + boxW, y + boxH / 2, x + boxW + gap, y + boxH / 2));
-            }
-            x += boxW + gap;
-        }
-
-        text(g, CHAIN, n + " threshold devices", (float) cx, (float) height - 8, Anchor.CENTER);
+    /**
+     * How long it stands still once the circuit fires.
+     *
+     * The chain of threshold devices used to be sketched here too. It is not any more: the
+     * circuit editor under the world draws the real thing, live, and a second cartoon of it
+     * that could disagree with it is worse than no cartoon at all.
+     */
+    private void drawPause(Graphics2D g) {
         text(g, PAUSE, String.format(Locale.US, "pause %.1f s", Parameters.PAUSE_SECONDS),
-                (float) width - 6, (float) height - 26, Anchor.RIGHT);
+                (float) width - 6, (float) height - 10, Anchor.RIGHT);
     }
 
     // --------------------------------------------------------- drawing helpers

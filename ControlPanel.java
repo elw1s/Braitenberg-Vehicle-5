@@ -30,14 +30,11 @@ public class ControlPanel extends JPanel {
 
     private final AnatomyView anatomy = new AnatomyView();
     private final JLabel explanation = new JLabel();
-    private final Runnable onChainLengthChanged;
 
     /** One entry per slider: pulls the slider back to whatever Parameters now says. */
     private final List<Runnable> refreshers = new ArrayList<>();
 
-    public ControlPanel(Runnable onChainLengthChanged) {
-        this.onChainLengthChanged = onChainLengthChanged;
-
+    public ControlPanel() {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBackground(Theme.BG);
         setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
@@ -74,13 +71,9 @@ public class ControlPanel extends JPanel {
                 () -> Parameters.PAUSE_SECONDS,
                 value -> Parameters.PAUSE_SECONDS = value));
 
-        add(slider(AnatomyView.CHAIN, "Threshold devices", "%.0f",
-                2, 8, 1.0,
-                () -> Parameters.CHAIN_LENGTH,
-                value -> {
-                    Parameters.CHAIN_LENGTH = (int) value;
-                    onChainLengthChanged.run();
-                }));
+        // The number of threshold devices used to be a slider here. It is not a parameter any
+        // more - the circuit editor under the world owns the wiring, and you add and delete
+        // devices there. Two places to set the same thing is one place too many.
 
         add(Box.createVerticalGlue());
         add(resetButton());
@@ -182,20 +175,19 @@ public class ControlPanel extends JPanel {
     }
 
     private JButton resetButton() {
-        JButton button = new JButton("Reset to defaults");
-        button.setFont(Theme.LABEL);
-        button.setFocusable(false);
-        button.setAlignmentX(Component.LEFT_ALIGNMENT);
-        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        button.addActionListener(event -> {
+        JButton button = Ui.button("Reset to defaults", () -> {
+            // Only the vehicle's parameters. The circuit belongs to the editor, and wiping
+            // someone's wiring because they wanted the cruise speed back would be a nasty
+            // surprise.
             Parameters.resetToDefaults();
             for (Runnable refresher : refreshers) {
                 refresher.run();  // each slider snaps back to its default
             }
-            onChainLengthChanged.run();
             describe(null);
             anatomy.repaint();
         });
+        button.setAlignmentX(Component.LEFT_ALIGNMENT);
+        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
         return button;
     }
 
@@ -246,12 +238,6 @@ public class ControlPanel extends JPanel {
                         + "fired. Then the chain is cleared and it counts again."
                         + "<br>&nbsp;&nbsp;%.1f s &times; %d fps = <b>%d frames</b>",
                         Parameters.PAUSE_SECONDS, Parameters.FPS, Parameters.pauseFrames()));
-            case AnatomyView.CHAIN:
-                return wrap(String.format(Locale.US,
-                        "<b>Threshold devices.</b> How many source visits before it pauses. "
-                        + "Thresholds are 1, then 2, 2, 2 &hellip; so each pulse pushes the chain "
-                        + "exactly one step. <b>%d devices</b> = counts to %d.",
-                        Parameters.CHAIN_LENGTH, Parameters.CHAIN_LENGTH));
             default:
                 return "";
         }

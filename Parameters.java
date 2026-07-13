@@ -130,16 +130,15 @@ public class Parameters {
     public static double PAUSE_SECONDS = 1.5;
 
     /**
-     * HOW MANY THRESHOLD DEVICES are chained together in Brain - and therefore how
-     * many source visits it takes before the vehicle pauses.
+     * How many threshold devices the PRESET counters are built with - four devices count to
+     * four, one per source in the world.
      *
-     *     device 0 : threshold 1  ->  a pulse on its own switches it on
-     *     device i : threshold 2  ->  needs the pulse (1) AND device i-1 already on (1)
-     *
-     * Four devices count to four, one per source in the world. Set it to 6 and the
-     * vehicle has to pass a source six times before it stops.
+     * There is no slider for this any more, and it is not the length of the brain's chain:
+     * the circuit editor at the bottom of the window owns the wiring now, and you add or
+     * delete devices there. This is only the size of the circuits the "Load preset" menu
+     * hands you to start from. See Circuit.counter().
      */
-    public static int CHAIN_LENGTH = 4;
+    public static final int CHAIN_LENGTH = 4;
 
     // =====================================================================
     // Derived values - never stored, always recomputed from the above
@@ -155,17 +154,11 @@ public class Parameters {
         return (int) Math.round(PAUSE_SECONDS * FPS);
     }
 
-    /** The threshold of device i in the counting chain: 1, then 2, 2, 2, ... */
-    public static int counterThreshold(int index) {
-        return index == 0 ? 1 : 2;
-    }
-
     public static void resetToDefaults() {
         DETECT_DISTANCE = 41;
         CRUISE_SPEED = 2.0;
         STEER_GAIN = 1.0;
         SENSOR_SPACING = 80;
         PAUSE_SECONDS = 1.5;
-        CHAIN_LENGTH = 4;
     }
 }
