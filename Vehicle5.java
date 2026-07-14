@@ -1,6 +1,7 @@
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
@@ -11,12 +12,19 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import javax.swing.AbstractAction;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 /**
@@ -54,27 +62,55 @@ import javax.swing.Timer;
  */
 public class Vehicle5 extends JPanel implements ActionListener {
 
-    // The world. Four sources, one for each device in the default counting circuit.
-    Source[] sources = {
-        new Source(300, 300, new Color(255, 80, 80)),
-        new Source(120, 180, new Color(255, 190, 60)),
-        new Source(480, 250, new Color(90, 210, 120)),
-        new Source(170, 470, new Color(120, 160, 255)),
+    /** The colours new sources are given, in turn. Cosmetic - every source shines the same. */
+    private static final Color[] PALETTE = {
+        new Color(255, 80, 80),
+        new Color(255, 190, 60),
+        new Color(90, 210, 120),
+        new Color(120, 160, 255),
+        new Color(190, 120, 220),
+        new Color(80, 200, 210),
     };
+
+    /**
+     * The world. Drag a source to move it, right-click to add or delete one - see the mouse
+     * handling below. Four to start with, one for each device in the default circuit.
+     */
+    final List<Source> sources = new ArrayList<>(List.of(
+        new Source(300, 300, PALETTE[0]),
+        new Source(120, 180, PALETTE[1]),
+        new Source(480, 250, PALETTE[2]),
+        new Source(170, 470, PALETTE[3])));
+
+    /** The source being dragged, or null. */
+    private Source dragging;
 
     /**
      * The brain's wiring. The editor holds on to THIS object and edits it in place, so the
      * vehicle is always running whatever the board is showing.
+     *
+     * A RING, not the plain counter, because nothing outside the circuit clears it any more. The
+     * ring clears itself, so it pauses at every fourth source, over and over. Load the plain
+     * Counter from the menu to see the other half of the lesson: it fills up, fires once, and can
+     * never fire again - and that is not a bug, it is what a chain with no feedback in it is.
      */
-    final Circuit circuit = Circuit.counter(Parameters.CHAIN_LENGTH);
+    final Circuit circuit = Circuit.ringCounter(Parameters.CHAIN_LENGTH);
 
     Vehicle vehicle = new Vehicle(300, 500, Math.toRadians(-35), circuit);
 
     final SpeedControl speedControl = new SpeedControl();
     final ControlPanel controlPanel = new ControlPanel();
 
-    /** Adding or deleting a device changes the shape of the network, so the brain restarts. */
-    final CircuitEditor editor = new CircuitEditor(vehicle, () -> vehicle.rebuildBrain());
+    /**
+     * The editor gets two lines back to the simulation: rebuild the brain when the shape of the
+     * network changes, and HOLD THE WORLD STILL the moment anyone touches the wiring. Rewiring a
+     * brain while its owner is driving around is no way to see what you have done - and the
+     * vehicle would be somewhere else by the time you looked up.
+     */
+    final CircuitEditor editor = new CircuitEditor(vehicle, vehicle::rebuildBrain, this::pause);
+
+    /** Whether the world is moving. Everything still draws while it is not. */
+    private boolean running = true;
 
     // Fullscreen (F11, Escape, or the button) remembers the windowed bounds to come back to.
     private boolean fullscreen;
@@ -107,7 +143,13 @@ public class Vehicle5 extends JPanel implements ActionListener {
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
 
+        // Swing hands the focus to the first thing that will take it, which is the editor's name
+        // box - so every key you press lands in it before you have asked to save anything. Park
+        // the focus on the world instead: the name box gets it when you click it, and not before.
+        canvas.requestFocusInWindow();
+
         canvas.speedControl.onFullscreen(() -> canvas.toggleFullscreen(frame));
+        canvas.speedControl.onPlayPause(() -> canvas.setRunning(!canvas.isRunning()));
         canvas.bindFullscreenKeys(frame);
     }
 
@@ -115,19 +157,130 @@ public class Vehicle5 extends JPanel implements ActionListener {
         setPreferredSize(new Dimension(Parameters.SCREEN_WIDTH, Parameters.SCREEN_HEIGHT));
         setBackground(Color.WHITE);
         setAlignmentX(Component.CENTER_ALIGNMENT);
+        setFocusable(true);   // so the focus has somewhere harmless to sit at startup
+
+        installSourceMouse();
 
         // This timer is the "while running:" loop: it fires FPS times per second.
         new Timer(1000 / Parameters.FPS, this).start();
     }
 
-    /** One frame: advance the simulation, then redraw. */
+    // ------------------------------------------------------------------ the world's sources
+
+    /**
+     * Drag a source to move it; right-click to add one or take one away.
+     *
+     * Deliberately NOT paused while you do it. Rewiring a brain mid-drive is useless, so the
+     * editor stops the world - but dragging a light around while the vehicle is chasing it is the
+     * single most convincing thing this simulation does, and freezing that would be a shame. It
+     * works either way: while paused, the readout still updates, so you can place a source and see
+     * what the sensors make of it before letting go.
+     */
+    private void installSourceMouse() {
+        MouseAdapter mouse = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) {
+                Source under = sourceUnder(event.getX(), event.getY());
+
+                if (SwingUtilities.isRightMouseButton(event)) {
+                    sourceMenu(under, event.getX(), event.getY()).show(Vehicle5.this,
+                            event.getX(), event.getY());
+                    return;
+                }
+                dragging = under;
+            }
+
+            @Override
+            public void mouseDragged(MouseEvent event) {
+                if (dragging == null) {
+                    return;
+                }
+                // Kept inside the world, or a source could be dropped where nothing can reach it.
+                dragging.x = clamp(event.getX(), 0, Parameters.SCREEN_WIDTH);
+                dragging.y = clamp(event.getY(), 0, Parameters.SCREEN_HEIGHT);
+                repaint();
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                dragging = null;
+            }
+
+            @Override
+            public void mouseMoved(MouseEvent event) {
+                setCursor(Cursor.getPredefinedCursor(
+                        sourceUnder(event.getX(), event.getY()) != null
+                                ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+            }
+        };
+        addMouseListener(mouse);
+        addMouseMotionListener(mouse);
+    }
+
+    private JPopupMenu sourceMenu(Source under, int x, int y) {
+        JPopupMenu menu = new JPopupMenu();
+
+        if (under != null) {
+            JMenuItem delete = new JMenuItem("Delete this source");
+            delete.setFont(Theme.LABEL);
+            delete.addActionListener(event -> {
+                sources.remove(under);
+                repaint();
+            });
+            menu.add(delete);
+        } else {
+            JMenuItem add = new JMenuItem("Add a source here");
+            add.setFont(Theme.LABEL);
+            add.addActionListener(event -> {
+                sources.add(new Source(x, y, PALETTE[sources.size() % PALETTE.length]));
+                repaint();
+            });
+            menu.add(add);
+        }
+        return menu;
+    }
+
+    private Source sourceUnder(int x, int y) {
+        // Backwards: the last one drawn is the one on top, so it is the one you meant.
+        for (int i = sources.size() - 1; i >= 0; i--) {
+            if (sources.get(i).contains(x, y)) {
+                return sources.get(i);
+            }
+        }
+        return null;
+    }
+
+    private double clamp(double value, double low, double high) {
+        return Math.max(low, Math.min(high, value));
+    }
+
+    /** One frame: advance the simulation if it is running, then redraw either way. */
     @Override
     public void actionPerformed(ActionEvent event) {
-        for (int step = 0; step < speedControl.stepsPerFrame(); step++) {
-            vehicle.update(sources);
+        if (running) {
+            for (int step = 0; step < speedControl.stepsPerFrame(); step++) {
+                vehicle.update(sources);
+            }
         }
         repaint();
         editor.tick();
+    }
+
+    // ------------------------------------------------------------------ running and not
+
+    /** Hold the world still. Called by the editor on every edit, and by the Play/Pause button. */
+    void pause() {
+        setRunning(false);
+    }
+
+    void setRunning(boolean run) {
+        running = run;
+        speedControl.setRunning(run);
+        repaint();
+    }
+
+    boolean isRunning() {
+        return running;
     }
 
     // ------------------------------------------------------------------ fullscreen
@@ -192,6 +345,30 @@ public class Vehicle5 extends JPanel implements ActionListener {
         }
         vehicle.draw(g);
         drawReadout(g);
+
+        if (!running) {
+            drawPausedOverlay(g);
+        }
+    }
+
+    /** Unmissable, because a still picture of a simulation looks exactly like a broken one. */
+    void drawPausedOverlay(Graphics2D g) {
+        int w = getWidth(), h = getHeight();
+
+        g.setColor(new Color(255, 255, 255, 190));
+        g.fillRect(0, 0, w, h);
+
+        String title = "PAUSED";
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 64));
+        int titleWidth = g.getFontMetrics().stringWidth(title);
+        g.setColor(new Color(0x1B, 0x21, 0x2C));
+        g.drawString(title, (w - titleWidth) / 2, h / 2);
+
+        String hint = "Build the circuit below, then press Play";
+        g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 15));
+        int hintWidth = g.getFontMetrics().stringWidth(hint);
+        g.setColor(new Color(0x77, 0x80, 0x92));
+        g.drawString(hint, (w - hintWidth) / 2, h / 2 + 30);
     }
 
     /** The live numbers in the corner: what it senses, what it does, what it remembers. */
@@ -210,5 +387,11 @@ public class Vehicle5 extends JPanel implements ActionListener {
         g.drawString("brain    " + devices, 10, 60);
         g.drawString(String.format(Locale.US, "%-7s  devices on = %d / %d",
                 vehicle.action, vehicle.brain.count(), vehicle.brain.size()), 10, 80);
+
+        // Nobody discovers a right-click menu they were not told about.
+        g.setFont(Theme.SMALL);
+        g.setColor(Theme.MUTED);
+        g.drawString("drag a light to move it   -   right-click to add or delete one",
+                10, getHeight() - 12);
     }
 }

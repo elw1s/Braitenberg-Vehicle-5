@@ -196,21 +196,33 @@ public class Ui {
         }
 
         @Override
+        public void setEnabled(boolean enabled) {
+            super.setEnabled(enabled);
+            setForeground(!enabled ? Theme.FAINT
+                    : primary || chosen ? Color.WHITE : Theme.TEXT);
+            setCursor(java.awt.Cursor.getPredefinedCursor(
+                    enabled ? java.awt.Cursor.HAND_CURSOR : java.awt.Cursor.DEFAULT_CURSOR));
+            repaint();
+        }
+
+        @Override
         protected void paintComponent(Graphics graphics) {
             Graphics2D g = pretty(graphics);
             boolean pressed = getModel().isArmed() && getModel().isPressed();
+            boolean off = !isEnabled();
 
-            Color fill = primary || chosen
-                    ? (pressed ? Theme.ACCENT_DARK : Theme.ACCENT)
-                    : (pressed ? Theme.BUTTON_PRESS : hover ? Theme.BUTTON_HOVER : Theme.BUTTON);
+            Color fill = off ? Theme.BG
+                    : primary || chosen
+                        ? (pressed ? Theme.ACCENT_DARK : Theme.ACCENT)
+                        : (pressed ? Theme.BUTTON_PRESS : hover ? Theme.BUTTON_HOVER : Theme.BUTTON);
 
             RoundRectangle2D shape = new RoundRectangle2D.Double(
                     0, 0, getWidth(), getHeight(), RADIUS, RADIUS);
             g.setColor(fill);
             g.fill(shape);
 
-            if (!primary && !chosen) {
-                g.setColor(Theme.BUTTON_LINE);
+            if (off || (!primary && !chosen)) {
+                g.setColor(off ? Theme.LINE : Theme.BUTTON_LINE);
                 g.draw(new RoundRectangle2D.Double(
                         0.5, 0.5, getWidth() - 1.0, getHeight() - 1.0, RADIUS, RADIUS));
             }

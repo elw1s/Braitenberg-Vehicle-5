@@ -3,6 +3,7 @@ import java.awt.FlowLayout;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.JButton;
 import javax.swing.JPanel;
 
@@ -22,8 +23,11 @@ public class SpeedControl extends JPanel {
     private static final int[] FACTORS = { 1, 2, 4, 8 };
 
     private final List<Ui.Segment> segments = new ArrayList<>();
+    private final JButton playPause;
     private final JButton fullscreen;
+
     private Runnable onFullscreen = () -> { };
+    private Runnable onPlayPause = () -> { };
 
     private int stepsPerFrame = 1;
 
@@ -36,6 +40,10 @@ public class SpeedControl extends JPanel {
 
         JPanel speed = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         speed.setOpaque(false);
+
+        playPause = Ui.primary("Pause", () -> onPlayPause.run());
+        speed.add(playPause);
+        speed.add(Box.createHorizontalStrut(14));
         speed.add(Ui.caption("Speed"));
 
         for (int factor : FACTORS) {
@@ -72,6 +80,19 @@ public class SpeedControl extends JPanel {
     /** What the fullscreen button does. Vehicle5 owns the window, so it owns the toggling. */
     public void onFullscreen(Runnable action) {
         this.onFullscreen = action;
+    }
+
+    /** What the Play/Pause button does. Vehicle5 owns the clock, so it owns the running. */
+    public void onPlayPause(Runnable action) {
+        this.onPlayPause = action;
+    }
+
+    /**
+     * Keeps the button honest however the world got stopped - the button, or an edit in the
+     * circuit editor. It says what pressing it will DO, not what the state currently is.
+     */
+    public void setRunning(boolean running) {
+        playPause.setText(running ? "Pause" : "Play");
     }
 
     /** Keeps the button honest whichever way fullscreen was toggled - the button, or F11. */

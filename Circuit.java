@@ -12,34 +12,43 @@ import java.util.List;
  * this is the thing itself. If you want to understand the vehicle's brain, read only this.
  *
  *
- * THE RULES. Every device is evaluated once per FRAME - not once per pulse:
+ * THE RULES. There are three, and step() is all three of them.
  *
- *   0. THE CLOCK IS THE FRAME. The pulse (INPUT) is a wire like any other: on during the
- *      frames the peak detector fires, off the rest of the time. Stepping every frame, and
- *      not only on pulses, is what gives the network a sense of TIME - a device can react to
- *      the ABSENCE of pulses. A latching device sits still through the quiet frames, so a
- *      plain counter behaves the same either way; but a circuit that resets itself in the gap
- *      after a pulse is only expressible this way.
+ *   1. THE CLOCK IS THE PULSE. The network takes exactly one step each time a pulse arrives on
+ *      the input rail, and does nothing at all in between. Everything else here follows from
+ *      that, so it is worth being concrete:
  *
- *   1. SNAPSHOT. Every device reads the state the network had BEFORE this frame. Nothing sees
- *      a neighbour's new value in the same step. This is what makes it a synchronous (clocked)
- *      circuit - and it is why a FEEDBACK LOOP cannot hang: a wire running backwards reads
- *      last frame's value, not this frame's.
+ *          pulse 1:  the first device fires. Its output has NOT gone anywhere yet.
+ *          pulse 2:  now the first device's output arrives at the second one, which therefore
+ *                    sees the new pulse AND the first device at the same moment - the pair that
+ *                    reaches its threshold of 2. The first device's own inhibition arrives too,
+ *                    and switches it off.
+ *          pulse 3:  the second device's output reaches the third, which fires.
  *
- *   2. EXCITATION. Add up the excitatory wires whose source is on. A device fires when that
- *      sum reaches its threshold.
+ *      That is Braitenberg's fig. 10b: a pulse out for every third pulse in.
  *
- *   3. INHIBITION IS A VETO. If any inhibitory wire into a device has an active source, that
- *      device is forced OFF this frame no matter what the excitation says, and its latch is
- *      cleared. This is the only way to switch a latched device back off from inside the
- *      network - it is how a circuit resets itself (Braitenberg's fig. 10b).
+ *   2. ONE STEP OF DELAY. A device reads the state the network had at the PREVIOUS pulse, never
+ *      the one being computed. So a signal takes one pulse to travel one device, which is what
+ *      spreads a burst of three pulses across three devices instead of collapsing it into one.
+ *      It is also why a FEEDBACK LOOP cannot hang - a wire running backwards reads the last
+ *      step's value, and there is nothing to chase.
  *
- * All of which is one line, in step():
+ *   3. EXCITATION SUMS, INHIBITION VETOES. Add up the excitatory wires whose source was on. The
+ *      device fires if that reaches its threshold - unless an inhibitory wire's source was on,
+ *      in which case it is off, whatever the excitation says.
  *
- *      on = vetoed ? false : (was on || excitation >= threshold)
+ * In one line:
  *
- * The circuit FIRES on the frame its output device switches from off to on. That is the
- * signal that makes the vehicle pause.
+ *      on = vetoed ? false : (excitation >= threshold)
+ *
+ * NOTHING LATCHES. A device is on for exactly as long as its inputs say so, and its state at
+ * the last pulse is the only memory in the system. That is enough: the plain counter remembers
+ * because the pulse rail keeps re-firing each device it has already reached, and fig. 10b's ring
+ * remembers because the token it is passing along has to be somewhere. Devices that latched on
+ * for good could count, but they could never count TWICE.
+ *
+ * The circuit FIRES on the step its output device switches from off to on. That is the signal
+ * that makes the vehicle pause.
  */
 public class Circuit {
 
@@ -57,6 +66,17 @@ public class Circuit {
         public int from, to;
         public final int weight;   // EXCITE or INHIBIT
 
+        /**
+         * DRAWING ONLY, and step() never once looks at it.
+         *
+         * When you tap a wire and run the signal somewhere new, the new wire carries the same
+         * source - electrically it makes no difference at all where the junction sits. But it
+         * makes every difference to a reader, so the point you tapped is remembered here (as a
+         * fraction of the board, so it survives resizing) and the wire is drawn leaving from
+         * there, with a junction dot on it. -1 means "no junction: draw it from the device".
+         */
+        public double branchX = -1, branchY = -1;
+
         Edge(int from, int to, int weight) {
             this.from = from;
             this.to = to;
@@ -65,6 +85,15 @@ public class Circuit {
 
         public boolean inhibitory() {
             return weight < 0;
+        }
+
+        public boolean branched() {
+            return branchX >= 0 && branchY >= 0;
+        }
+
+        public void branchAt(double x, double y) {
+            branchX = x;
+            branchY = y;
         }
     }
 
@@ -80,10 +109,13 @@ public class Circuit {
     // =====================================================================
 
     /**
-     * One frame of the network. Reads the state before this frame, returns the state after.
-     * inputOn is whether the peak detector pulsed on this frame. See THE RULES above.
+     * ONE PULSE. Takes the state the network was left in by the previous pulse, and returns the
+     * state this one puts it in. Called once per pulse and never in between - see THE RULES.
+     *
+     * The pulse itself is on for the whole of this step, by definition: a step IS a pulse. So a
+     * wire from INPUT is simply a wire whose source is on.
      */
-    public boolean[] step(boolean[] before, boolean inputOn) {
+    public boolean[] step(boolean[] before) {
         boolean[] after = new boolean[devices.size()];
 
         for (int i = 0; i < devices.size(); i++) {
@@ -94,7 +126,9 @@ public class Circuit {
                 if (edge.to != i) {
                     continue;
                 }
-                boolean sourceOn = edge.from == INPUT ? inputOn : before[edge.from];
+                // INPUT is the pulse, and we are in one. Everything else is read from the state
+                // the network was in BEFORE this pulse - never from what we are computing now.
+                boolean sourceOn = edge.from == INPUT || before[edge.from];
                 if (!sourceOn) {
                     continue;
                 }
@@ -105,7 +139,7 @@ public class Circuit {
                 }
             }
 
-            after[i] = !vetoed && (before[i] || devices.get(i).wouldFire(excitation));
+            after[i] = !vetoed && devices.get(i).wouldFire(excitation);
         }
         return after;
     }
@@ -115,34 +149,41 @@ public class Circuit {
         return hasOutput() && after[output] && !before[output];
     }
 
-    /**
-     * Run the circuit on a train of pulses and report which pulses it fired on. Pure
-     * bookkeeping on top of step() - the editor's "Test" button uses this to tell you what
-     * the thing you just wired up actually does, without waiting for the vehicle to find
-     * that many sources.
-     *
-     * quiet is how many empty frames sit between two pulses. It matters: a self-resetting
-     * circuit does its clearing in exactly those frames.
-     */
-    public List<Integer> firingPulses(int pulses, int quiet) {
-        List<Integer> firings = new ArrayList<>();
-        boolean[] state = new boolean[devices.size()];
-
-        for (int p = 1; p <= pulses; p++) {
-            state = advance(state, true, firings, p);
-            for (int q = 0; q < quiet; q++) {
-                state = advance(state, false, firings, p);
-            }
-        }
-        return firings;
+    /** What a trial run of the circuit turned up. */
+    public static final class Trace {
+        /** Which pulses the output fired on. */
+        public final List<Integer> firings = new ArrayList<>();
+        /** Whether each device switched on even once. A device that never does is dead wiring. */
+        public boolean[] everOn;
     }
 
-    private boolean[] advance(boolean[] state, boolean inputOn, List<Integer> firings, int pulse) {
-        boolean[] after = step(state, inputOn);
-        if (fired(state, after) && !firings.contains(pulse)) {
-            firings.add(pulse);
+    /**
+     * Run the circuit on a train of pulses and report what happened. Pure bookkeeping on top of
+     * step() - the editor's "Test" button uses this to tell you what the thing you just wired up
+     * actually does, without waiting for the vehicle to find that many sources.
+     *
+     * There is no gap to model between two pulses. The network only ever moves when a pulse
+     * arrives, so a run is just that many steps.
+     */
+    public Trace run(int pulses) {
+        Trace trace = new Trace();
+        trace.everOn = new boolean[devices.size()];
+
+        boolean[] state = new boolean[devices.size()];
+        for (int pulse = 1; pulse <= pulses; pulse++) {
+            boolean[] after = step(state);
+
+            if (fired(state, after)) {
+                trace.firings.add(pulse);
+            }
+            for (int i = 0; i < after.length; i++) {
+                if (after[i]) {
+                    trace.everOn[i] = true;
+                }
+            }
+            state = after;
         }
-        return after;
+        return trace;
     }
 
     // =====================================================================
@@ -212,12 +253,15 @@ public class Circuit {
      * by drawing it again. A device cannot excite itself (it already latches), but it CAN
      * inhibit itself - that is how a device gives a single-frame pulse instead of latching on.
      */
-    public void connect(int from, int to, int weight) {
-        if (to < 0 || to >= devices.size()) return;
-        if (from == to && weight > 0) return;
+    /** Returns the new wire, or null if the pair cannot carry one. */
+    public Edge connect(int from, int to, int weight) {
+        if (to < 0 || to >= devices.size()) return null;
+        if (from == to && weight > 0) return null;
 
         disconnect(from, to);
-        edges.add(new Edge(from, to, weight));
+        Edge edge = new Edge(from, to, weight);
+        edges.add(edge);
+        return edge;
     }
 
     public void disconnect(int from, int to) {
@@ -264,22 +308,49 @@ public class Circuit {
     }
 
     /**
-     * The same counter, but it CLEARS ITSELF: the last device inhibits every device in the
-     * chain, itself included. No outside reset - the network remembers and forgets on its own.
-     * This is the shape of Braitenberg's fig. 10b, and the reason inhibition exists here.
+     * BRAITENBERG'S FIG. 10b, generalised: a RING that emits a pulse for every n-th pulse in.
      *
-     * It only comes out clean because the network is stepped every frame. The veto lands on
-     * the very next frame, in the quiet just after the pulse, so the chain is already empty
-     * when the next pulse arrives and every pulse gets counted. Step it only on pulses instead
-     * and the reset has to eat a pulse to do its work, which drifts the count to one-in-(n+1).
+     * The plain counter above fills up and stays full. This one passes a single token along the
+     * chain instead, and only one device is ever on at a time:
+     *
+     *     pulse 1:  [ON ] [   ] [   ]
+     *     pulse 2:  [   ] [ON ] [   ]      device 0 has inhibited itself and stood down
+     *     pulse 3:  [   ] [   ] [ON ]      the last device fires -> the vehicle pauses
+     *     pulse 4:  [ON ] [   ] [   ]      nothing is inhibiting device 0 any more; it re-arms
+     *
+     * Two kinds of inhibitory wire do it, and both are in the book's drawing:
+     *
+     *     device 0 inhibits ITSELF          so it fires once and hands the token on rather than
+     *                                       sitting there on for good.
+     *     devices 1..n-2 inhibit device 0   so it stays down while the token is still travelling,
+     *                                       and only re-arms once the token has left the chain.
+     *
+     * The last device is deliberately NOT one of them. It is still on during the step after it
+     * fires, and if it held device 0 down as well, that pulse would be spent re-arming instead of
+     * counting - and the ring would quietly become a divide-by-(n+1).
      */
-    public static Circuit selfResettingCounter(int n) {
+    public static Circuit ringCounter(int n) {
         Circuit circuit = counter(n);
-        circuit.name = "Self-resetting counter";
+        circuit.name = "Ring counter";
 
-        for (int i = 0; i < n; i++) {
-            circuit.connect(n - 1, i, INHIBIT);
+        circuit.connect(0, 0, INHIBIT);
+        for (int i = 1; i <= n - 2; i++) {
+            circuit.connect(i, 0, INHIBIT);
         }
+        return circuit;
+    }
+
+    /**
+     * BRAITENBERG'S FIG. 10b: "a network of threshold devices that emits a pulse for every third
+     * pulse in a row in the input."
+     *
+     * Three devices (1, 2, 2), the pulse rail into each, a chain between them, and the two hooks
+     * the book draws going back into the first device. It is ringCounter(3), and Test will tell
+     * you it fires on 3, 6, 9, 12 - exactly what the caption promises.
+     */
+    public static Circuit figure10b() {
+        Circuit circuit = ringCounter(3);
+        circuit.name = "Figure 10b";
         return circuit;
     }
 

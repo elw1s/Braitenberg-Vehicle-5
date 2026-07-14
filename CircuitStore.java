@@ -62,8 +62,14 @@ public class CircuitStore {
                     device.threshold, device.x, device.y));
         }
         for (Circuit.Edge edge : circuit.edges()) {
-            text.append(String.format(Locale.ROOT, "edge %d %d %d%n",
+            text.append(String.format(Locale.ROOT, "edge %d %d %d",
                     edge.from, edge.to, edge.weight));
+            if (edge.branched()) {
+                // Two optional extras: where the wire was tapped off another one. Drawing only.
+                text.append(String.format(Locale.ROOT, " %.4f %.4f",
+                        edge.branchX, edge.branchY));
+            }
+            text.append(System.lineSeparator());
         }
         text.append("output ").append(circuit.output()).append('\n');
 
@@ -85,8 +91,11 @@ public class CircuitStore {
                             Double.parseDouble(word[2]), Double.parseDouble(word[3]));
                     break;
                 case "edge":
-                    circuit.connect(Integer.parseInt(word[1]),
+                    Circuit.Edge edge = circuit.connect(Integer.parseInt(word[1]),
                             Integer.parseInt(word[2]), Integer.parseInt(word[3]));
+                    if (edge != null && word.length >= 6) {
+                        edge.branchAt(Double.parseDouble(word[4]), Double.parseDouble(word[5]));
+                    }
                     break;
                 case "output":
                     circuit.setOutput(Integer.parseInt(word[1]));

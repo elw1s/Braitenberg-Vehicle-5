@@ -58,9 +58,17 @@ public class Brain {
     // total cannot be missed: the display just watches it change. See CircuitEditor.
     private long pulseCount;
 
+    // The same trap, one level down. A device that inhibits ITSELF is on for exactly one frame -
+    // it fires and then switches itself off. Ask it "are you on?" at repaint time and the answer
+    // is almost always no, so it looks dead even while it is doing its job every single pulse.
+    // Counting the times each device switched on is the only honest way to show it: a total the
+    // display can compare against, instead of a state it has to be lucky enough to catch.
+    private long[] activations;
+
     public Brain(Circuit circuit) {
         this.circuit = circuit;
         this.state = new boolean[circuit.size()];
+        this.activations = new long[circuit.size()];
     }
 
     public Circuit circuit() {
@@ -77,6 +85,7 @@ public class Brain {
         // rebuild the brain, notice it here and start the network from empty.
         if (state.length != circuit.size()) {
             state = new boolean[circuit.size()];
+            activations = new long[circuit.size()];
         }
 
         // Stage 1: a pulse at the peak of the reading, i.e. at the closest approach.
@@ -98,24 +107,42 @@ public class Brain {
         wasRising = rising;
         previousReading = averageReading;
 
-        // Stage 2: one step of the network - EVERY frame, with the pulse as its input wire,
-        // not just on the frames that pulse. A latching device sits still through the quiet
-        // frames, so this costs the counter nothing; what it buys is that a circuit can also
-        // react to the GAPS between pulses, which is where inhibition does its work.
+        // Stage 2: one step of the network - but ONLY on a pulse. The pulse is the circuit's
+        // clock; between two of them the network does not move at all, and the state it was
+        // left in is what the next pulse will read. Step it on every frame instead and a device
+        // that inhibits itself switches off in the very next frame, hundreds of frames before
+        // the next pulse arrives - so the device it was supposed to feed never sees it, and a
+        // chain of thresholds silently stops counting. See THE RULES in Circuit.
+        if (!pulse) {
+            return false;
+        }
+
         boolean[] before = state;
-        state = circuit.step(before, pulse);
+        state = circuit.step(before);
+
+        for (int i = 0; i < state.length; i++) {
+            if (state[i] && !before[i]) {
+                activations[i]++;
+            }
+        }
         return circuit.fired(before, state);
     }
 
     /**
-     * Forget everything and start counting from zero.
+     * Re-arm the PEAK DETECTOR after the vehicle has been standing still - and touch nothing else.
      *
-     * currentReading re-arms the peak detector. The vehicle stood still all through the pause,
-     * so it is still sitting next to the source it just counted; starting from "not rising"
-     * means driving away from it cannot produce another peak.
+     * The vehicle stood still all through its pause, so it is still sitting next to the source it
+     * just counted; starting from "not rising" means driving away from it cannot look like a new
+     * peak. That is all this does.
+     *
+     * It deliberately does NOT clear the circuit. It used to, and that was a lie: the vehicle's
+     * pause was quietly doing the circuit's job for it, so a network that could reset itself and
+     * one that could not behaved exactly the same from the outside. Now they do not. A ring clears
+     * itself and goes round again; a plain counter fills up, fires once, and can never fire again
+     * - which is the truth about a chain with no feedback in it, and the whole reason Braitenberg
+     * draws the feedback.
      */
-    public void reset(double currentReading) {
-        state = new boolean[circuit.size()];
+    public void rearm(double currentReading) {
         previousReading = currentReading;
         wasRising = false;
         pulsedThisFeed = false;
@@ -128,6 +155,14 @@ public class Brain {
     /** How many pulses in total. Only ever grows - reset() does not clear it. */
     public long pulseCount() {
         return pulseCount;
+    }
+
+    /**
+     * How many times device i has switched on. Only ever grows. The display watches this rather
+     * than isActive(), so a device that is only ever on for a single frame still shows up.
+     */
+    public long activations(int index) {
+        return index >= 0 && index < activations.length ? activations[index] : 0;
     }
 
     /** How many devices are currently on. For the default counter, that is the count. */

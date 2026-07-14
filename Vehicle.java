@@ -31,10 +31,13 @@ public class Vehicle {
     // the circuit last cleared, so the trail shows what the brain is currently remembering.
     private final List<double[]> detectMarks = new ArrayList<>();
 
+    // Where it started, so Reset can put it back there.
+    private final double startX, startY, startHeading;
+
     public Vehicle(double x, double y, double heading, Circuit circuit) {
-        this.x = x;
-        this.y = y;
-        this.heading = heading;
+        this.x = this.startX = x;
+        this.y = this.startY = y;
+        this.heading = this.startHeading = heading;
         this.brain = new Brain(circuit);
     }
 
@@ -50,7 +53,21 @@ public class Vehicle {
         detectMarks.clear();
     }
 
-    public void update(Source[] sources) {
+    /**
+     * Back to the start line: same spot, same heading, empty brain.
+     *
+     * A circuit is only really testable from a known starting point. Rewire something halfway
+     * through a run and the vehicle is wherever it happened to be, with whatever the old wiring
+     * left in its head - which is a poor way to find out what the new wiring does.
+     */
+    public void reset() {
+        x = startX;
+        y = startY;
+        heading = startHeading;
+        rebuildBrain();
+    }
+
+    public void update(List<Source> sources) {
         // -------------------------------------------------- 1. SENSE
         double[][] sensors = sensorPositions();
         readingLeft = readSensor(sensors[0][0], sensors[0][1], sources);
@@ -58,11 +75,13 @@ public class Vehicle {
         readingAverage = (readingLeft + readingRight) / 2;
 
         // -------------------------------------------------- 2. PAUSE?
-        // The chain filled up earlier, so we are standing still. Count down, then forget.
+        // The circuit fired earlier, so we are standing still. Count the pause down, then drive
+        // on - and leave the circuit exactly as it is. Clearing it here is what used to hide the
+        // difference between a network that can reset itself and one that cannot. See Brain.rearm.
         if (pauseFramesLeft > 0) {
             pauseFramesLeft--;
             if (pauseFramesLeft == 0) {
-                brain.reset(readingAverage);
+                brain.rearm(readingAverage);
                 detectMarks.clear();
             }
             leftMotorSpeed = 0;
@@ -72,13 +91,14 @@ public class Vehicle {
         }
 
         // -------------------------------------------------- 3. THINK
-        // The brain turns the reading into pulses and counts them. It says "full"
-        // on the single frame the last threshold device fires.
-        boolean chainFull = brain.feed(readingAverage);
+        // The brain turns the reading into pulses and steps the circuit on each one. It says
+        // "fired" on the single frame the output device switches on.
+        boolean fired = brain.feed(readingAverage);
         if (brain.justPulsed()) {
             detectMarks.add(new double[] { x, y });
         }
-        if (chainFull) {
+        // The output device switching on is the stop signal, whatever the circuit is.
+        if (fired) {
             pauseFramesLeft = Parameters.pauseFrames();
         }
 
@@ -88,6 +108,18 @@ public class Vehicle {
         double speed = Parameters.CRUISE_SPEED * Math.max(0, 1 - readingAverage);
         double steer = Parameters.STEER_GAIN * (readingRight - readingLeft);
 
+        // These are deliberately NOT clamped, even though steer has no ceiling of its own.
+        //
+        // A reading is SENSOR_GAIN / distance^2, so a light sitting right on a sensor reads about
+        // 500 (readSensor's max(..., 1.0) is what stops it going higher), steer goes with it, and
+        // the vehicle spins on the spot - the brake cannot help, because it only holds the FORWARD
+        // speed down and a pure spin has none. You CAN provoke that now, by dragging a light onto
+        // the vehicle, and it looks alarming.
+        //
+        // But it is bounded, it cannot produce a NaN, and it rights itself the moment the light is
+        // moved away. And a motor limit low enough to tame it is low enough to change the ordinary
+        // driving too: grazing a source at speed already sends these past 400, and that hard veer
+        // away from the light is not an accident - it is the behaviour.
         leftMotorSpeed = speed - steer;
         rightMotorSpeed = speed + steer;
         action = "DRIVING";
@@ -143,7 +175,7 @@ public class Vehicle {
      * The max(..., 1.0) only stops a division by zero if the sensor lands exactly on
      * a source.
      */
-    double readSensor(double pointX, double pointY, Source[] sources) {
+    double readSensor(double pointX, double pointY, List<Source> sources) {
         double total = 0;
         for (Source source : sources) {
             double dx = pointX - source.x;
