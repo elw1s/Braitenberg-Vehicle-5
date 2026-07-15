@@ -154,7 +154,13 @@ public class Vehicle5 extends JPanel implements ActionListener {
     }
 
     Vehicle5() {
-        setPreferredSize(new Dimension(Parameters.SCREEN_WIDTH, Parameters.SCREEN_HEIGHT));
+        Dimension size = new Dimension(Parameters.SCREEN_WIDTH, Parameters.SCREEN_HEIGHT);
+        setPreferredSize(size);
+        // Pin the minimum to the same 600x600. Without this, the GridBagLayout "world" panel that
+        // centres the canvas collapses it to a ~10 px square whenever the window is a touch shorter
+        // than 600 px (the circuit board below eats the height) - which paints the whole simulation
+        // into a dot and leaves the world looking empty. It must never shrink below its own size.
+        setMinimumSize(size);
         setBackground(Color.WHITE);
         setAlignmentX(Component.CENTER_ALIGNMENT);
         setFocusable(true);   // so the focus has somewhere harmless to sit at startup
